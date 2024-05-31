@@ -1,21 +1,80 @@
-MIT License
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-Copyright (c) 2024 edgardojr09
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+contract DegenToken is ERC20, Ownable {
+    event TicketCreated(address indexed creator, string eventName, uint256 quantity, uint256 price);
+    event TicketRedeemed(address indexed redeemer, string eventName, uint256 quantity);
+    event TicketTransferred(address indexed from, address indexed to, string eventName, uint256 quantity);
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+    struct Ticket {
+        uint256 quantity;
+        uint256 price;
+    }
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+    mapping(string => Ticket) public tickets;
+    mapping(address => mapping(string => uint256)) public userTickets;
+
+    constructor(address initialOwner) Ownable(initialOwner) ERC20("Degen", "DGN") {}
+
+    function mint(address to, uint256 amount) external onlyOwner {
+        _mint(to, amount);
+    }
+
+    function burn(uint256 amount) external {
+        _burn(msg.sender, amount);
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        _transfer(_msgSender(), to, amount);
+        return true;
+    }
+
+    function createTicket(string memory eventName, uint256 quantity, uint256 price) external onlyOwner {
+        require(quantity > 0, "Quantity must be greater than zero");
+        require(price > 0, "Price must be greater than zero");
+
+        tickets[eventName] = Ticket({
+            quantity: quantity,
+            price: price
+        });
+
+        emit TicketCreated(msg.sender, eventName, quantity, price);
+    }
+
+    function buyTicket(string memory eventName, uint256 quantity) external {
+        Ticket storage ticket = tickets[eventName];
+        require(ticket.quantity >= quantity, "Not enough tickets available");
+        uint256 totalPrice = ticket.price * quantity;
+        require(balanceOf(msg.sender) >= totalPrice, "Insufficient balance");
+
+        _burn(msg.sender, totalPrice);
+        ticket.quantity -= quantity;
+        userTickets[msg.sender][eventName] += quantity;
+
+        emit TicketRedeemed(msg.sender, eventName, quantity);
+    }
+
+    function redeemTicket(string memory eventName, uint256 quantity) external {
+        require(userTickets[msg.sender][eventName] >= quantity, "Not enough tickets to redeem");
+
+        userTickets[msg.sender][eventName] -= quantity;
+
+        emit TicketRedeemed(msg.sender, eventName, quantity);
+    }
+
+    function transferTicket(address to, string memory eventName, uint256 quantity) external {
+        require(userTickets[msg.sender][eventName] >= quantity, "Not enough tickets to transfer");
+
+        userTickets[msg.sender][eventName] -= quantity;
+        userTickets[to][eventName] += quantity;
+
+        emit TicketTransferred(msg.sender, to, eventName, quantity);
+    }
+
+    function checkTicketBalance(address account, string memory eventName) external view returns (uint256) {
+        return userTickets[account][eventName];
+    }
+}
